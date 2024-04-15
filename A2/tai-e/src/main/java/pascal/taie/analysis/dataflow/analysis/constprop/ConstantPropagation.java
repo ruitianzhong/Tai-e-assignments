@@ -50,7 +50,14 @@ public class ConstantPropagation extends
     @Override
     public CPFact newBoundaryFact(CFG<Stmt> cfg) {
         // TODO - finish me
-        return new CPFact();
+        var fact = new CPFact();
+        for (var variable : cfg.getIR().getParams()) {
+            if (canHoldInt(variable)) {
+                fact.update(variable, Value.getNAC());
+                System.out.println("testing");
+            }
+        }
+        return fact;
     }
 
     @Override
@@ -103,19 +110,18 @@ public class ConstantPropagation extends
     @Override
     public boolean transferNode(Stmt stmt, CPFact in, CPFact out) {
         // TODO - finish me
-
         var in_copy = in.copy();
 
         var def = stmt.getDef();
         if (def.isPresent() && (def.get() instanceof Var var) && canHoldInt(var)) {
-            in_copy.update((Var) def.get(), Value.getUndef());
             var rvalues = stmt.getUses();
             for (var rvalue : rvalues) {
-                Value value = evaluate(rvalue, in);
+                Value value = evaluate(rvalue, in_copy);
                 if (value != null) {
-                    in.update(var, value);
+                    in_copy.update(var, value);
                 }
             }
+
 
         }
         return out.copyFrom(in_copy);
@@ -154,6 +160,8 @@ public class ConstantPropagation extends
             return evaluateBinaryExp((BinaryExp) exp, in);
         } else if (exp instanceof IntLiteral) {
             return evaluateConstant((IntLiteral) exp);
+        } else if (exp instanceof InvokeExp) {
+            return Value.getNAC();
         }
         return null;
     }
