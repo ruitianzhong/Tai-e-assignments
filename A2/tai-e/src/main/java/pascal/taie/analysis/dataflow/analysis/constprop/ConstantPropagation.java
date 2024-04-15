@@ -33,8 +33,7 @@ import pascal.taie.language.type.PrimitiveType;
 import pascal.taie.language.type.Type;
 import pascal.taie.util.AnalysisException;
 
-public class ConstantPropagation extends
-        AbstractDataflowAnalysis<Stmt, CPFact> {
+public class ConstantPropagation extends AbstractDataflowAnalysis<Stmt, CPFact> {
 
     public static final String ID = "constprop";
 
@@ -112,16 +111,16 @@ public class ConstantPropagation extends
         // TODO - finish me
         var in_copy = in.copy();
 
-        var def = stmt.getDef();
-        if (def.isPresent() && (def.get() instanceof Var var) && canHoldInt(var)) {
-            var rvalues = stmt.getUses();
-            for (var rvalue : rvalues) {
-                Value value = evaluate(rvalue, in_copy);
+        if (stmt instanceof DefinitionStmt<?, ?>) {
+            DefinitionStmt definitionStmt = (DefinitionStmt) stmt;
+            LValue lValue = definitionStmt.getLValue();
+            RValue rValue = definitionStmt.getRValue();
+            if (lValue instanceof Var var && canHoldInt(var)) {
+                Value value = evaluate(rValue, in_copy);
                 if (value != null) {
                     in_copy.update(var, value);
                 }
             }
-
 
         }
         return out.copyFrom(in_copy);
@@ -175,7 +174,6 @@ public class ConstantPropagation extends
     }
 
     private static Value evaluateBinaryExp(BinaryExp binaryExp, CPFact cpFact) {
-
         Value v1 = cpFact.get(binaryExp.getOperand1()), v2 = cpFact.get(binaryExp.getOperand2());
         if (v1.isNAC() || v2.isNAC()) {
             return Value.getNAC();
