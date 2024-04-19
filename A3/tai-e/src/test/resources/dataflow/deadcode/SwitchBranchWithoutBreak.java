@@ -28,8 +28,3 @@ class SwitchBranchWithoutBreak {
         }
     }
 
-    void temp() {
-
-    }
-
-}

@@ -193,6 +193,15 @@ public class DeadCodeDetection extends MethodAnalysis {
             if (!context.visited.contains(switchStmt.getDefaultTarget())) {
                 addList(context, switchStmt.getDefaultTarget());
             }
+        } else {
+            for (var target : switchStmt.getCaseTargets()) {
+                if (!context.visited.contains(target.second())) {
+                    addList(context, target.second());
+                }
+            }
+            if (!context.visited.contains(switchStmt.getDefaultTarget())) {
+                addList(context, switchStmt.getDefaultTarget());
+            }
         }
     }
 
@@ -203,7 +212,7 @@ public class DeadCodeDetection extends MethodAnalysis {
 
         var fact = context.liveVars.getOutFact(stmt);
 
-        if ((!hasNoSideEffect(rvalue)) || (lvalue instanceof Var var && fact.contains(var))) {
+        if ((!hasNoSideEffect(rvalue)) || (lvalue instanceof Var var && fact.contains(var)) || (!(lvalue instanceof Var))) {
             context.reach.add(stmt);
         }
 
