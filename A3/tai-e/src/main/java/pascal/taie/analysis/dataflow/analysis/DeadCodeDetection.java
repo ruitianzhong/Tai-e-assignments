@@ -33,21 +33,13 @@ import pascal.taie.analysis.graph.cfg.CFGBuilder;
 import pascal.taie.analysis.graph.cfg.Edge;
 import pascal.taie.config.AnalysisConfig;
 import pascal.taie.ir.IR;
-import pascal.taie.ir.exp.ArithmeticExp;
-import pascal.taie.ir.exp.ArrayAccess;
-import pascal.taie.ir.exp.CastExp;
-import pascal.taie.ir.exp.FieldAccess;
-import pascal.taie.ir.exp.NewExp;
-import pascal.taie.ir.exp.RValue;
-import pascal.taie.ir.exp.Var;
+import pascal.taie.ir.exp.*;
 import pascal.taie.ir.stmt.AssignStmt;
 import pascal.taie.ir.stmt.If;
 import pascal.taie.ir.stmt.Stmt;
 import pascal.taie.ir.stmt.SwitchStmt;
 
-import java.util.Comparator;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 public class DeadCodeDetection extends MethodAnalysis {
 
@@ -55,23 +47,6 @@ public class DeadCodeDetection extends MethodAnalysis {
 
     public DeadCodeDetection(AnalysisConfig config) {
         super(config);
-    }
-
-    @Override
-    public Set<Stmt> analyze(IR ir) {
-        // obtain CFG
-        CFG<Stmt> cfg = ir.getResult(CFGBuilder.ID);
-        // obtain result of constant propagation
-        DataflowResult<Stmt, CPFact> constants =
-                ir.getResult(ConstantPropagation.ID);
-        // obtain result of live variable analysis
-        DataflowResult<Stmt, SetFact<Var>> liveVars =
-                ir.getResult(LiveVariableAnalysis.ID);
-        // keep statements (dead code) sorted in the resulting set
-        Set<Stmt> deadCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
-        // TODO - finish me
-        // Your task is to recognize dead code in ir and add it to deadCode
-        return deadCode;
     }
 
     /**
@@ -95,5 +70,167 @@ public class DeadCodeDetection extends MethodAnalysis {
             return op != ArithmeticExp.Op.DIV && op != ArithmeticExp.Op.REM;
         }
         return true;
+    }
+
+    @Override
+    public Set<Stmt> analyze(IR ir) {
+        // obtain CFG
+        CFG<Stmt> cfg = ir.getResult(CFGBuilder.ID);
+        // obtain result of constant propagation
+        DataflowResult<Stmt, CPFact> constants = ir.getResult(ConstantPropagation.ID);
+        // obtain result of live variable analysis
+        DataflowResult<Stmt, SetFact<Var>> liveVars = ir.getResult(LiveVariableAnalysis.ID);
+        // keep statements (dead code) sorted in the resulting set
+        Set<Stmt> deadCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
+        // TODO - finish me
+        // Your task is to recognize dead code in ir and add it to deadCode
+        var list = new LinkedList<Stmt>();
+        HashSet<Stmt> visited = new HashSet<>(), reached = new HashSet<>();
+
+        var entry = cfg.getEntry();
+        list.add(entry);
+        visited.add(entry);
+        DeadCodeAnalysisContext context = new DeadCodeAnalysisContext(reached, visited, list, cfg, constants, liveVars);
+
+        while (!list.isEmpty()) {
+            var stmt = list.pop();
+            if (stmt instanceof If) {
+                handleIfStmt(context, stmt);
+            } else if (stmt instanceof SwitchStmt) {
+                handleSwitchStmt(context, stmt);
+            } else if (stmt instanceof AssignStmt<?, ?>) {
+                handleAssignStmt(context, stmt);
+            } else {
+                context.reach.add(stmt);
+                addAllSuccessors(context, stmt);
+            }
+        }
+
+        for (var stmt : cfg) {
+            if (!visited.contains(stmt)) {
+                deadCode.add(stmt);
+            }
+        }
+        return deadCode;
+    }
+
+    private void addAllSuccessors(DeadCodeAnalysisContext context, Stmt stmt) {
+        for (var edge : context.cfg.getOutEdgesOf(stmt)) {
+            if (context.visited.contains(edge.getTarget())) {
+                continue;
+            }
+            context.list.add(edge.getTarget());
+        }
+    }
+
+
+    private void handleIfStmt(DeadCodeAnalysisContext context, Stmt stmt) {
+        If ifStatement = (If) stmt;
+        ConditionExp exp = ifStatement.getCondition();
+        var fact = context.constants.getOutFact(stmt);
+        Value v1 = fact.get(exp.getOperand1()), v2 = fact.get(exp.getOperand2());
+
+        context.reach.add(stmt);
+
+        if (v1.isNAC() || v2.isNAC()) {
+            addAllSuccessors(context, stmt);
+            return;
+        }
+        // attention here
+        if (v1.isUndef() || v2.isUndef()) {
+            addAllSuccessors(context, stmt);
+            return;
+        }
+
+        int left = v1.getConstant(), right = v2.getConstant();
+
+        boolean eval = switch (exp.getOperator()) {
+            case NE -> left != right;
+            case LT -> left < right;
+            case LE -> left <= right;
+            case GT -> left > right;
+            case GE -> left >= right;
+            case EQ -> left == right;
+        };
+        var outEdge = context.cfg.getOutEdgesOf(stmt);
+        Stmt realTarget = null;
+        for (var edge : outEdge) {
+            var target = edge.getTarget();
+            if (context.visited.contains(target)) {
+                return;
+            }
+            if (edge.getKind() == Edge.Kind.IF_TRUE && eval) {
+                realTarget = target;
+            } else if (edge.getKind() == Edge.Kind.IF_FALSE && !eval) {
+                realTarget = target;
+            }
+        }
+
+        if (realTarget != null) {
+            addList(context, realTarget);
+        }
+    }
+
+    private void addList(DeadCodeAnalysisContext context, Stmt target) {
+        context.list.add(target);
+        context.visited.add(target);
+    }
+
+    private void handleSwitchStmt(DeadCodeAnalysisContext context, Stmt stmt) {
+        var switchStmt = (SwitchStmt) stmt;
+        context.reach.add(stmt);
+        var value = context.constants.getOutFact(stmt).get(switchStmt.getVar());
+        if (value.isConstant()) {
+            var constant = value.getConstant();
+            for (var target : switchStmt.getCaseTargets()) {
+                if (target.first() == constant) {
+                    if (!context.visited.contains(target.second())) {
+                        addList(context, target.second());
+                        return;
+                    }
+                }
+
+            }
+            if (!context.visited.contains(switchStmt.getDefaultTarget())) {
+                addList(context, switchStmt.getDefaultTarget());
+            }
+        }
+    }
+
+    private void handleAssignStmt(DeadCodeAnalysisContext context, Stmt stmt) {
+        var assignStmt = (AssignStmt<?, ?>) stmt;
+        var lvalue = assignStmt.getLValue();
+        var rvalue = assignStmt.getRValue();
+
+        var fact = context.liveVars.getInFact(stmt);
+
+        if (!hasNoSideEffect(rvalue) || (lvalue instanceof Var var && fact.contains(var))) {
+            context.reach.add(stmt);
+        }
+
+        addAllSuccessors(context, stmt);
+
+    }
+
+    static class DeadCodeAnalysisContext {
+        HashSet<Stmt> reach;
+        HashSet<Stmt> visited;
+        LinkedList<Stmt> list;
+
+        CFG<Stmt> cfg;
+
+        DataflowResult<Stmt, CPFact> constants;
+
+        DataflowResult<Stmt, SetFact<Var>> liveVars;
+
+        DeadCodeAnalysisContext(HashSet<Stmt> reach, HashSet<Stmt> visited, LinkedList<Stmt> list, CFG<Stmt> cfg, DataflowResult<Stmt, CPFact> constants, DataflowResult<Stmt, SetFact<Var>> liveVars) {
+            this.reach = reach;
+            this.visited = visited;
+            this.list = list;
+            this.cfg = cfg;
+            this.constants = constants;
+            this.liveVars = liveVars;
+        }
+
     }
 }
