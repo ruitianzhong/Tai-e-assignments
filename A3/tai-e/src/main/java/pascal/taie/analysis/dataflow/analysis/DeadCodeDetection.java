@@ -88,10 +88,9 @@ public class DeadCodeDetection extends MethodAnalysis {
         HashSet<Stmt> visited = new HashSet<>(), reached = new HashSet<>();
 
         var entry = cfg.getEntry();
-        list.add(entry);
-        visited.add(entry);
-        DeadCodeAnalysisContext context = new DeadCodeAnalysisContext(reached, visited, list, cfg, constants, liveVars);
 
+        DeadCodeAnalysisContext context = new DeadCodeAnalysisContext(reached, visited, list, cfg, constants, liveVars);
+        addList(context, entry);
         while (!list.isEmpty()) {
             var stmt = list.pop();
             if (stmt instanceof If) {
@@ -107,7 +106,7 @@ public class DeadCodeDetection extends MethodAnalysis {
         }
 
         for (var stmt : cfg) {
-            if (!visited.contains(stmt)) {
+            if (!reached.contains(stmt) && !cfg.isExit(stmt)) {
                 deadCode.add(stmt);
             }
         }
@@ -202,9 +201,9 @@ public class DeadCodeDetection extends MethodAnalysis {
         var lvalue = assignStmt.getLValue();
         var rvalue = assignStmt.getRValue();
 
-        var fact = context.liveVars.getInFact(stmt);
+        var fact = context.liveVars.getOutFact(stmt);
 
-        if (!hasNoSideEffect(rvalue) || (lvalue instanceof Var var && fact.contains(var))) {
+        if ((!hasNoSideEffect(rvalue)) || (lvalue instanceof Var var && fact.contains(var))) {
             context.reach.add(stmt);
         }
 
