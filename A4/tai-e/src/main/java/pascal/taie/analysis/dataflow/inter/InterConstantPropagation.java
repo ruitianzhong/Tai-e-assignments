@@ -85,8 +85,6 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
         if (!(lValue instanceof Var)) {
             return cp.transferNode(stmt, in, out);
         }
-
-
         var copy = out.copy();
 
         cp.transferNode(stmt, in, copy);

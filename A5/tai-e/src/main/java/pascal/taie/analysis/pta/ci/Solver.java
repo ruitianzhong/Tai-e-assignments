@@ -31,7 +31,9 @@ import pascal.taie.analysis.graph.callgraph.DefaultCallGraph;
 import pascal.taie.analysis.graph.callgraph.Edge;
 import pascal.taie.analysis.pta.core.heap.HeapModel;
 import pascal.taie.analysis.pta.core.heap.Obj;
+import pascal.taie.ir.exp.ArrayAccess;
 import pascal.taie.ir.exp.InvokeExp;
+import pascal.taie.ir.exp.LValue;
 import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.proginfo.MethodRef;
 import pascal.taie.ir.stmt.Copy;
@@ -97,6 +99,9 @@ class Solver {
      */
     private void addReachable(JMethod method) {
         // TODO - finish me
+        for (var stmt : method.getIR().getStmts()) {
+            stmt.accept(stmtProcessor);
+        }
     }
 
     /**
@@ -105,6 +110,43 @@ class Solver {
     private class StmtProcessor implements StmtVisitor<Void> {
         // TODO - if you choose to implement addReachable()
         //  via visitor pattern, then finish me
+        @Override
+        public Void visit(Copy copy) {
+            Var lv = copy.getLValue(), rv = copy.getRValue()
+            addPFGEdge(pointerFlowGraph.getVarPtr(rv), pointerFlowGraph.getVarPtr(lv))
+            return null;
+        }
+
+        @Override
+        public Void visit(New stmt) {
+            if (stmt.getDef().isEmpty()) {
+                return null;
+            }
+            LValue lvalue = stmt.getDef().get();
+
+            Pointer p;
+            if (lvalue instanceof Var var) {
+                p = pointerFlowGraph.getVarPtr(var);
+            } else {
+                throw new UnsupportedOperationException();
+            }
+
+            var obj = heapModel.getObj(stmt);
+            p.getPointsToSet().addObject(obj);
+            return null;
+        }
+
+        @Override
+        public Void visit(LoadField loadField) {
+
+
+            return null;
+        }
+
+        @Override
+        public Void visit(StoreField storeField) {
+            return null;
+        }
     }
 
     /**
@@ -112,6 +154,9 @@ class Solver {
      */
     private void addPFGEdge(Pointer source, Pointer target) {
         // TODO - finish me
+        if (pointerFlowGraph.addEdge(source, target) && source.getPointsToSet().isEmpty()) {
+            workList.addEntry(target, source.getPointsToSet());
+        }
     }
 
     /**
@@ -127,13 +172,14 @@ class Solver {
      */
     private PointsToSet propagate(Pointer pointer, PointsToSet pointsToSet) {
         // TODO - finish me
+
         return null;
     }
 
     /**
      * Processes instance calls when points-to set of the receiver variable changes.
      *
-     * @param var the variable that holds receiver objects
+     * @param var  the variable that holds receiver objects
      * @param recv a new discovered object pointed by the variable.
      */
     private void processCall(Var var, Obj recv) {

@@ -46,7 +46,13 @@ public class ConstantPropagation extends AbstractDataflowAnalysis<Stmt, CPFact> 
 
     @Override
     public CPFact newBoundaryFact(CFG<Stmt> cfg) {
-        return new CPFact();
+        var fact = new CPFact();
+        for (var variable : cfg.getIR().getParams()) {
+            if (canHoldInt(variable)) {
+                fact.update(variable, Value.getNAC());
+            }
+        }
+        return fact;
     }
 
     @Override
@@ -144,12 +150,8 @@ public class ConstantPropagation extends AbstractDataflowAnalysis<Stmt, CPFact> 
             return evaluateBinaryExp((BinaryExp) exp, in);
         } else if (exp instanceof IntLiteral) {
             return evaluateConstant((IntLiteral) exp);
-        } else if (exp instanceof InvokeExp) {
-            return Value.getNAC();
-        } else if (exp instanceof FieldAccess) {
-            return Value.getNAC();
         }
-        return null;
+        return Value.getNAC();
     }
 
     private static Value evaluateVar(Var var, CPFact cpFact) {
