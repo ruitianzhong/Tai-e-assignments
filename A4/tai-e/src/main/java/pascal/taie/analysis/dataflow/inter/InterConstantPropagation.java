@@ -76,13 +76,6 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
     @Override
     protected boolean transferCallNode(Stmt stmt, CPFact in, CPFact out) {
         // TODO - finish me
-        cp.transferNode(stmt, in, out);
-        return false;
-    }
-
-    @Override
-    protected boolean transferNonCallNode(Stmt stmt, CPFact in, CPFact out) {
-        // TODO - finish me
         if (stmt.getDef().isEmpty()) {
             return cp.transferNode(stmt, in, out);
         }
@@ -101,6 +94,13 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
         copy.update((Var) lValue, Value.getUndef());
 
         return out.copyFrom(copy);
+
+    }
+
+    @Override
+    protected boolean transferNonCallNode(Stmt stmt, CPFact in, CPFact out) {
+        // TODO - finish me
+        return cp.transferNode(stmt, in, out);
     }
 
     @Override
@@ -123,18 +123,20 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
     @Override
     protected CPFact transferCallEdge(CallEdge<Stmt> edge, CPFact callSiteOut) {
         // TODO - finish me
-        var copy = callSiteOut.copy();
-        for (var param : edge.getCallee().getIR().getVars()) {
-            var uses = param.getUses();
+        var temp = new CPFact();
+        var j = 0;
+        for (var param : edge.getCallee().getIR().getParams()) {
+            var uses = edge.getSource().getUses();
             // all args are `Var` ?
-            for (int i = 0; i < uses.size(); i++) {
-                if (uses.get(i) instanceof InvokeExp invokeExp) {
-                    copy.update(param, callSiteOut.get(invokeExp.getArg(i)));
+            for (var use : uses) {
+                if (use instanceof InvokeExp invokeExp) {
+                    temp.update(param, callSiteOut.get(invokeExp.getArg(j)));
                     break;
                 }
             }
+            j++;
         }
-        return copy;
+        return temp;
     }
 
     @Override
@@ -142,12 +144,22 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
         // TODO - finish me
         var target = new CPFact();
 
-        for (var retVar : edge.getReturnVars()) {
-            var temp = new CPFact();
-            temp.update(retVar, returnOut.get(retVar));
-            meetInto(temp, target);
+        var def = edge.getCallSite().getDef();
+        if (def.isEmpty()) {
+            return target;
         }
 
+        var lvalue = def.get();
+
+        if (!(lvalue instanceof Var var)) {
+            return target;
+        }
+
+        for (var retVar : edge.getReturnVars()) {
+            var temp = new CPFact();
+            temp.update(var, returnOut.get(retVar));
+            meetInto(temp, target);
+        }
         return target;
     }
 }

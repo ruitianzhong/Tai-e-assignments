@@ -60,10 +60,12 @@ class InterSolver<Method, Node, Fact> {
 
     private void initialize() {
         // TODO - finish me
+        workList = new LinkedList<>();
         for (var node : icfg) {
             var method = icfg.getContainingMethodOf(node);
             if (icfg.getEntryOf(method) == node) {
                 result.setOutFact(node, analysis.newBoundaryFact(node));
+                result.setInFact(node, analysis.newBoundaryFact(node));
             } else {
                 result.setOutFact(node, analysis.newInitialFact());
                 result.setInFact(node, analysis.newInitialFact());
@@ -73,9 +75,13 @@ class InterSolver<Method, Node, Fact> {
 
     private void doSolve() {
         // TODO - finish me
-        workList = new LinkedList<>();
-        for (var m : icfg.entryMethods().toList()) {
-            workList.add(icfg.getEntryOf(m));
+        // add all nodes except the entry node.
+        for (var node : icfg) {
+            var m = icfg.getContainingMethodOf(node);
+            if (icfg.getEntryOf(m) == node) {
+                continue;
+            }
+            workList.add(node);
         }
 
         while (!workList.isEmpty()) {

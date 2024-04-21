@@ -51,6 +51,7 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
         callGraph.addEntryMethod(entry);
         // TODO - finish me
         LinkedList<JMethod> list = new LinkedList<>();
+        callGraph.addReachableMethod(entry);
         list.add(entry);
         while (!list.isEmpty()) {
             var method = list.pop();
@@ -85,7 +86,7 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
         Set<JMethod> set = new HashSet<>();
         var kind = CallGraphs.getCallKind(callSite);
 
-        if (kind == CallKind.INTERFACE || kind == CallKind.DYNAMIC) {
+        if (kind == CallKind.INTERFACE || kind == CallKind.VIRTUAL) {
             LinkedList<JClass> list = new LinkedList<>();
             list.add(jClass);
 
