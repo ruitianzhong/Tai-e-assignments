@@ -97,7 +97,12 @@ class Solver {
      */
     private void addReachable(JMethod method) {
         // TODO - finish me
+        if (callGraph.contains(method)) {
+            return;
+        }
+        callGraph.addReachableMethod(method);
         for (var stmt : method.getIR().getStmts()) {
+            System.out.println(stmt);
             stmt.accept(stmtProcessor);
         }
     }
@@ -130,7 +135,8 @@ class Solver {
             }
 
             var obj = heapModel.getObj(stmt);
-            p.getPointsToSet().addObject(obj);
+            PointsToSet pointsToSet = new PointsToSet(obj);
+            workList.addEntry(p, pointsToSet);
             return null;
         }
 
@@ -165,11 +171,9 @@ class Solver {
         public Void visit(Invoke invoke) {
             if (invoke.isStatic()) {
                 JMethod method = resolveCallee(null, invoke);
-                if (!callGraph.contains(method)) {
-                    callGraph.addReachableMethod(method);
-                    addReachable(method);
-                }
+                addReachable(method);
                 linkArgAndRet(invoke, method);
+                callGraph.addEdge(new Edge<>(CallGraphs.getCallKind(invoke), invoke, method));
             }
             return null;
         }
@@ -262,10 +266,7 @@ class Solver {
         // TODO - finish me
         for (var invoke : var.getInvokes()) {
             var method = resolveCallee(recv, invoke);
-            if (!callGraph.contains(method)) {
-                callGraph.addReachableMethod(method);
-                addReachable(method);
-            }
+            addReachable(method);
             processNonStaticCall(invoke, method, recv);
             callGraph.addEdge(new Edge<>(CallGraphs.getCallKind(invoke), invoke, method));
         }
@@ -273,7 +274,7 @@ class Solver {
 
     private void processNonStaticCall(Invoke invoke, JMethod method, Obj recv) {
         var thisVar = method.getIR().getThis();
-        pointerFlowGraph.getVarPtr(thisVar).getPointsToSet().addObject(recv);
+        workList.addEntry(pointerFlowGraph.getVarPtr(thisVar), new PointsToSet(recv));
         linkArgAndRet(invoke, method);
     }
 
