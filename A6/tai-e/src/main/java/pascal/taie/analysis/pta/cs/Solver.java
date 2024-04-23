@@ -118,6 +118,7 @@ class Solver {
         callGraph.addReachableMethod(csMethod);
         StmtProcessor stmtProcessor = new StmtProcessor(csMethod);
         for (var stmt : csMethod.getMethod().getIR().getStmts()) {
+            System.out.println(stmt);
             stmt.accept(stmtProcessor);
         }
     }
@@ -154,9 +155,9 @@ class Solver {
             }
             // CSObj Vs. Obj
             Obj obj = heapModel.getObj(stmt);
-            CSObj csObj = csManager.getCSObj(context, obj);
+            Context newContext = contextSelector.selectHeapContext(csMethod, obj);
+            CSObj csObj = csManager.getCSObj(newContext, obj);
             workList.addEntry(p, PointsToSetFactory.make(csObj));
-
             return null;
         }
 
@@ -281,6 +282,12 @@ class Solver {
             delta.addObject(p);
             set.addObject(p);
         }
+        if (!delta.isEmpty()) {
+            for (var p : pointerFlowGraph.getSuccsOf(pointer)) {
+                workList.addEntry(p, delta);
+            }
+        }
+
         return delta;
     }
 
