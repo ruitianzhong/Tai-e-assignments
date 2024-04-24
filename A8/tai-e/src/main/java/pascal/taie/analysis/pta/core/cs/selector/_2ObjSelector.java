@@ -29,6 +29,7 @@ import pascal.taie.analysis.pta.core.cs.element.CSMethod;
 import pascal.taie.analysis.pta.core.cs.element.CSObj;
 import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.language.classes.JMethod;
+import pascal.taie.util.AnalysisException;
 
 /**
  * Implementation of 2-object sensitivity.
@@ -43,18 +44,31 @@ public class _2ObjSelector implements ContextSelector {
     @Override
     public Context selectContext(CSCallSite callSite, JMethod callee) {
         // TODO - finish me
-        return null;
+        return callSite.getContext();
     }
 
     @Override
     public Context selectContext(CSCallSite callSite, CSObj recv, JMethod callee) {
         // TODO - finish me
-        return null;
+        Context c = recv.getContext();
+
+        if (c.getLength() > 0) {
+            Object last = c.getElementAt(c.getLength() - 1);
+            if (last instanceof Obj obj) {
+                return ListContext.make(obj, recv.getObject());
+            } else {
+                throw new AnalysisException("unexpected type");
+            }
+        }
+        return ListContext.make(recv.getObject());
     }
 
     @Override
     public Context selectHeapContext(CSMethod method, Obj obj) {
         // TODO - finish me
-        return null;
+        if (method.getContext().getLength() == 2) {
+            return ListContext.make(method.getContext().getElementAt(1));
+        }
+        return method.getContext();
     }
 }

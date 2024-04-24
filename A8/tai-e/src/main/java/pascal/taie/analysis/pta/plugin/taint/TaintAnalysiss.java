@@ -83,23 +83,23 @@ public class TaintAnalysiss {
         for (var csMethod : callGraph) {
             for (var sink : config.getSinks()) {
                 if (sink.method() == csMethod.getMethod()) {
-                    transferSink(csMethod, callGraph.getCallersOf(csMethod), taintFlows);
+                    transferSink(callGraph.getCallersOf(csMethod), taintFlows, sink.index());
                 }
             }
         }
         return taintFlows;
     }
 
-    private void transferSink(CSMethod csMethod, Set<CSCallSite> callers, Set<TaintFlow> taintFlows) {
+    private void transferSink(Set<CSCallSite> callers, Set<TaintFlow> taintFlows, int index) {
 
         for (var caller : callers) {
             var invokeExp = caller.getCallSite().getInvokeExp();
             for (int i = 0; i < invokeExp.getArgCount(); i++) {
                 var arg = invokeExp.getArg(i);
-                var pArg = csManager.getCSVar(csMethod.getContext(), arg);
+                var pArg = csManager.getCSVar(caller.getContext(), arg);
 
                 for (CSObj obj : pArg.getPointsToSet()) {
-                    if (manager.isTaint(obj.getObject())) {
+                    if (manager.isTaint(obj.getObject()) && i == index) {
                         var taintFlow = new TaintFlow(manager.getSourceCall(obj.getObject()), caller.getCallSite(), i);
                         taintFlows.add(taintFlow);
                     }
@@ -147,14 +147,14 @@ public class TaintAnalysiss {
             if (from == -1 && to == -2) {
                 // from base to result
                 base2result(csBase, csResult);
-            } else if (from >= 0 && to == -1) {
+            }
+            if (from >= 0 && to == -1) {
                 // from arg to base
                 arg2base(csCallSite, csBase, from);
-            } else if (from >= 0 && to == -2) {
+            }
+            if (from >= 0 && to == -2) {
                 // from arg to result
                 arg2result(csCallSite, csResult, from);
-            } else {
-                throw new AnalysisException("unexpected taint configuration");
             }
         }
     }
@@ -177,5 +177,18 @@ public class TaintAnalysiss {
             var csArg = csManager.getCSVar(csCallSite.getContext(), csCallSite.getCallSite().getInvokeExp().getArg(arg));
             solver.addPFGEdge(csArg, baseVar);
         }
+    }
+
+    public boolean isTaint(Obj obj) {
+        return manager.isTaint(obj);
+    }
+
+    public boolean isTransfer(JMethod method) {
+        for (var transfer : config.getTransfers()) {
+            if (transfer.method() == method) {
+                return true;
+            }
+        }
+        return false;
     }
 }

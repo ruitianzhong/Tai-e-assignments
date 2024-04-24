@@ -146,6 +146,9 @@ public class Solver {
             if (p instanceof CSVar csVar) {
                 var context = csVar.getContext();
                 for (var obj : delta) {
+                    if (taintAnalysis.isTaint(obj.getObject())) {
+                        continue;
+                    }
                     var var = csVar.getVar();
                     for (var e : var.getLoadArrays()) {
                         var target = csManager.getCSVar(context, e.getLValue());
@@ -210,12 +213,13 @@ public class Solver {
             var method = resolveCallee(recvObj, callSite);
             var csCallSite = csManager.getCSCallSite(recv.getContext(), callSite);
             var newContext = contextSelector.selectContext(csCallSite, recvObj, method);
-
+            if (method == null) {
+                logger.warn("can not resolve the method");
+                continue;
+            }
             var csMethod = csManager.getCSMethod(newContext, method);
             addReachable(csMethod);
-
             callGraph.addEdge(new Edge<>(CallGraphs.getCallKind(callSite), csCallSite, csMethod));
-
             var thisVar = method.getIR().getThis();
             var csThisVar = csManager.getCSVar(newContext, thisVar);
 
@@ -311,12 +315,13 @@ public class Solver {
                 return null;
             }
             JMethod method = resolveCallee(null, stmt);
-
+            if (method == null) {
+                return null;
+            }
             var csCallSite = csManager.getCSCallSite(context, stmt);
             var newContext = contextSelector.selectContext(csCallSite, method);
             var csMethod = csManager.getCSMethod(newContext, method);
             addReachable(csMethod);
-
             callGraph.addEdge(new Edge<>(CallGraphs.getCallKind(stmt), csCallSite, csMethod));
             linkParamAndReturn(stmt, method, context, newContext);
             taintAnalysis.transferCallSite(csCallSite, method, null);
