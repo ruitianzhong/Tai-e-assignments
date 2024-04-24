@@ -182,13 +182,4 @@ public class TaintAnalysiss {
     public boolean isTaint(Obj obj) {
         return manager.isTaint(obj);
     }
-
-    public boolean isTransfer(JMethod method) {
-        for (var transfer : config.getTransfers()) {
-            if (transfer.method() == method) {
-                return true;
-            }
-        }
-        return false;
-    }
 }
