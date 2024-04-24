@@ -26,22 +26,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
 import pascal.taie.analysis.graph.callgraph.CallGraphs;
-import pascal.taie.analysis.graph.callgraph.CallKind;
 import pascal.taie.analysis.graph.callgraph.Edge;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
 import pascal.taie.analysis.pta.PointerAnalysisResultImpl;
 import pascal.taie.analysis.pta.core.cs.CSCallGraph;
 import pascal.taie.analysis.pta.core.cs.context.Context;
-import pascal.taie.analysis.pta.core.cs.element.ArrayIndex;
-import pascal.taie.analysis.pta.core.cs.element.CSCallSite;
-import pascal.taie.analysis.pta.core.cs.element.CSManager;
-import pascal.taie.analysis.pta.core.cs.element.CSMethod;
-import pascal.taie.analysis.pta.core.cs.element.CSObj;
-import pascal.taie.analysis.pta.core.cs.element.CSVar;
-import pascal.taie.analysis.pta.core.cs.element.InstanceField;
-import pascal.taie.analysis.pta.core.cs.element.MapBasedCSManager;
-import pascal.taie.analysis.pta.core.cs.element.Pointer;
-import pascal.taie.analysis.pta.core.cs.element.StaticField;
+import pascal.taie.analysis.pta.core.cs.element.*;
 import pascal.taie.analysis.pta.core.cs.selector.ContextSelector;
 import pascal.taie.analysis.pta.core.heap.HeapModel;
 import pascal.taie.analysis.pta.core.heap.Obj;
@@ -49,20 +39,13 @@ import pascal.taie.analysis.pta.plugin.taint.TaintAnalysiss;
 import pascal.taie.analysis.pta.pts.PointsToSet;
 import pascal.taie.analysis.pta.pts.PointsToSetFactory;
 import pascal.taie.config.AnalysisOptions;
-import pascal.taie.ir.exp.InvokeExp;
 import pascal.taie.ir.exp.Var;
-import pascal.taie.ir.stmt.Copy;
-import pascal.taie.ir.stmt.Invoke;
-import pascal.taie.ir.stmt.LoadArray;
-import pascal.taie.ir.stmt.LoadField;
-import pascal.taie.ir.stmt.New;
-import pascal.taie.ir.stmt.StmtVisitor;
-import pascal.taie.ir.stmt.StoreArray;
-import pascal.taie.ir.stmt.StoreField;
-import pascal.taie.language.classes.JField;
+import pascal.taie.ir.stmt.*;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.language.type.Type;
 import pascal.taie.util.AnalysisException;
+
+import javax.annotation.Nonnull;
 
 public class Solver {
 
@@ -136,7 +119,6 @@ public class Solver {
         callGraph.addReachableMethod(csMethod);
         StmtProcessor stmtProcessor = new StmtProcessor(csMethod);
         for (var stmt : csMethod.getMethod().getIR().getStmts()) {
-            System.out.println(stmt);
             stmt.accept(stmtProcessor);
         }
     }
@@ -144,7 +126,7 @@ public class Solver {
     /**
      * Adds an edge "source -> target" to the PFG.
      */
-    private void addPFGEdge(Pointer source, Pointer target) {
+    public void addPFGEdge(@Nonnull Pointer source, @Nonnull Pointer target) {
         // TODO - finish me
         if (pointerFlowGraph.addEdge(source, target) && !source.getPointsToSet().isEmpty()) {
             workList.addEntry(target, source.getPointsToSet());
@@ -238,7 +220,7 @@ public class Solver {
             var csThisVar = csManager.getCSVar(newContext, thisVar);
 
             linkParamAndReturn(callSite, method, recv.getContext(), newContext);
-
+            taintAnalysis.transferCallSite(csCallSite, method, recv);
             workList.addEntry(csThisVar, PointsToSetFactory.make(recvObj));
         }
     }
@@ -337,6 +319,7 @@ public class Solver {
 
             callGraph.addEdge(new Edge<>(CallGraphs.getCallKind(stmt), csCallSite, csMethod));
             linkParamAndReturn(stmt, method, context, newContext);
+            taintAnalysis.transferCallSite(csCallSite, method, null);
             return null;
         }
 
@@ -367,5 +350,15 @@ public class Solver {
             addPFGEdge(var, field);
             return null;
         }
+    }
+
+    public void addWorkList(Pointer p, PointsToSet pointsToSet) {
+        if (!pointsToSet.isEmpty()) {
+            workList.addEntry(p, pointsToSet);
+        }
+    }
+
+    public CSCallGraph getCallGraph() {
+        return callGraph;
     }
 }

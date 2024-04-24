@@ -27,10 +27,16 @@ import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
 import pascal.taie.analysis.pta.core.cs.context.Context;
-import pascal.taie.analysis.pta.core.cs.element.CSManager;
+import pascal.taie.analysis.pta.core.cs.element.*;
+import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.cs.Solver;
+import pascal.taie.analysis.pta.pts.PointsToSetFactory;
+import pascal.taie.ir.exp.Var;
+import pascal.taie.language.classes.JMethod;
+import pascal.taie.util.AnalysisException;
 
-import java.util.Map;
+import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -72,6 +78,104 @@ public class TaintAnalysiss {
         PointerAnalysisResult result = solver.getResult();
         // TODO - finish me
         // You could query pointer analysis results you need via variable result.
+        var callGraph = solver.getCallGraph();
+
+        for (var csMethod : callGraph) {
+            for (var sink : config.getSinks()) {
+                if (sink.method() == csMethod.getMethod()) {
+                    transferSink(csMethod, callGraph.getCallersOf(csMethod), taintFlows);
+                }
+            }
+        }
         return taintFlows;
+    }
+
+    private void transferSink(CSMethod csMethod, Set<CSCallSite> callers, Set<TaintFlow> taintFlows) {
+
+        for (var caller : callers) {
+            var invokeExp = caller.getCallSite().getInvokeExp();
+            for (int i = 0; i < invokeExp.getArgCount(); i++) {
+                var arg = invokeExp.getArg(i);
+                var pArg = csManager.getCSVar(csMethod.getContext(), arg);
+
+                for (CSObj obj : pArg.getPointsToSet()) {
+                    if (manager.isTaint(obj.getObject())) {
+                        var taintFlow = new TaintFlow(manager.getSourceCall(obj.getObject()), caller.getCallSite(), i);
+                        taintFlows.add(taintFlow);
+                    }
+                }
+            }
+        }
+    }
+
+
+    public void transferCallSite(@Nonnull CSCallSite csCallSite, @Nonnull JMethod method, @Nullable CSVar csBase) {
+        transferSource(csCallSite, method);
+        taintTransfer(csCallSite, method, csBase);
+    }
+
+    private void transferSource(CSCallSite csCallSite, JMethod method) {
+        Var ret = csCallSite.getCallSite().getLValue();
+        if (ret == null) {
+            return;
+        }
+        for (var source : config.getSources()) {
+            if (source.method() == method) {
+                Obj taintObj = manager.makeTaint(csCallSite.getCallSite(), source.type());
+                var pRet = csManager.getCSVar(csCallSite.getContext(), ret);
+                var csObj = csManager.getCSObj(emptyContext, taintObj);
+                solver.addWorkList(pRet, PointsToSetFactory.make(csObj));
+                return;
+            }
+        }
+    }
+
+    private void taintTransfer(CSCallSite csCallSite, JMethod method, CSVar csBase) {
+
+        for (var transfer : config.getTransfers()) {
+            if (transfer.method() != method) {
+                continue;
+            }
+            int from = transfer.from(), to = transfer.to();
+            var result = csCallSite.getCallSite().getResult();
+            CSVar csResult = null;
+
+            if (result != null) {
+                csResult = csManager.getCSVar(csCallSite.getContext(), result);
+            }
+
+            if (from == -1 && to == -2) {
+                // from base to result
+                base2result(csBase, csResult);
+            } else if (from >= 0 && to == -1) {
+                // from arg to base
+                arg2base(csCallSite, csBase, from);
+            } else if (from >= 0 && to == -2) {
+                // from arg to result
+                arg2result(csCallSite, csResult, from);
+            } else {
+                throw new AnalysisException("unexpected taint configuration");
+            }
+        }
+    }
+
+    private void base2result(CSVar baseVar, CSVar result) {
+        if (result != null && baseVar != null) {
+            solver.addPFGEdge(baseVar, result);
+        }
+    }
+
+    private void arg2result(CSCallSite csCallSite, CSVar csResult, int arg) {
+        if (csResult != null) {
+            var csArg = csManager.getCSVar(csCallSite.getContext(), csCallSite.getCallSite().getInvokeExp().getArg(arg));
+            solver.addPFGEdge(csArg, csResult);
+        }
+    }
+
+    private void arg2base(CSCallSite csCallSite, CSVar baseVar, int arg) {
+        if (baseVar != null) {
+            var csArg = csManager.getCSVar(csCallSite.getContext(), csCallSite.getCallSite().getInvokeExp().getArg(arg));
+            solver.addPFGEdge(csArg, baseVar);
+        }
     }
 }
