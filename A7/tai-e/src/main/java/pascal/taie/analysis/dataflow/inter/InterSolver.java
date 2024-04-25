@@ -97,4 +97,12 @@ class InterSolver<Method, Node, Fact> {
         }
 
     }
+
+    public DataflowResult<Node, Fact> getResult() {
+        return result;
+    }
+
+    public void addWorkList(Node node) {
+        workList.add(node);
+    }
 }

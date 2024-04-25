@@ -22,7 +22,6 @@
 
 package pascal.taie.analysis.dataflow.inter;
 
-import org.checkerframework.checker.units.qual.C;
 import pascal.taie.World;
 import pascal.taie.analysis.dataflow.analysis.constprop.CPFact;
 import pascal.taie.analysis.dataflow.analysis.constprop.ConstantPropagation;
@@ -35,16 +34,13 @@ import pascal.taie.analysis.graph.icfg.ReturnEdge;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
 import pascal.taie.config.AnalysisConfig;
 import pascal.taie.ir.IR;
-import pascal.taie.ir.exp.FieldAccess;
-import pascal.taie.ir.exp.InvokeExp;
 import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.stmt.*;
 import pascal.taie.language.classes.JField;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.util.AnalysisException;
-import soot.util.Cons;
 
-import java.util.jar.JarFile;
+import java.util.LinkedList;
 
 /**
  * Implementation of interprocedural constant propagation for int values.
@@ -57,6 +53,15 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
 
     private PointerAnalysisResult pta;
 
+    private LinkedList<StoreArray> storeArrays;
+
+    private LinkedList<StoreField> storeFields;
+
+    private LinkedList<LoadArray> loadArrays;
+
+    private LinkedList<LoadField> loadFields;
+
+
     public InterConstantPropagation(AnalysisConfig config) {
         super(config);
         cp = new ConstantPropagation(new AnalysisConfig(ConstantPropagation.ID));
@@ -67,6 +72,21 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
         String ptaId = getOptions().getString("pta");
         pta = World.get().getResult(ptaId);
         // You can do initialization work here
+        storeArrays = new LinkedList<>();
+        storeFields = new LinkedList<>();
+        loadArrays = new LinkedList<>();
+        loadFields = new LinkedList<>();
+        for (var stmt : icfg) {
+            if (stmt instanceof StoreArray storeArray) {
+                storeArrays.add(storeArray);
+            } else if (stmt instanceof StoreField storeField) {
+                storeFields.add(storeField);
+            } else if (stmt instanceof LoadField loadField) {
+                loadFields.add(loadField);
+            } else if (stmt instanceof LoadArray loadArray) {
+                loadArrays.add(loadArray);
+            }
+        }
     }
 
     @Override
@@ -124,7 +144,26 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
         } else if (stmt instanceof LoadArray loadArray) {
             return transferLoadArray(loadArray, in, out);
         }
-        return cp.transferNode(stmt, in, out);
+        var out_copy = out.copy();
+        var change = cp.transferNode(stmt, in, out);
+        if (change) {
+            var delta = new CPFact();
+            for (var o : out.keySet()) {
+                if (!out_copy.keySet().contains(o)) {
+                    delta.update(o, out.get(o));
+                }
+            }
+            for (var o : delta.keySet()) {
+                for (var loadArray : loadArrays) {
+                    var index = loadArray.getArrayAccess().getIndex();
+                    System.out.println("index " + index + " o " + o);
+                    if (index == o) {
+                        solver.addWorkList(loadArray);
+                    }
+                }
+            }
+        }
+        return change;
     }
 
     boolean transferLoadField(LoadField loadField, CPFact in, CPFact out) {
@@ -136,12 +175,12 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
 
         var fieldAccess = loadField.getFieldAccess();
         var in_copy = in.copy();
-        var method = icfg.getContainingMethodOf(loadField);
         var isStatic = fieldAccess.getFieldRef().isStatic();
-        for (var node : method.getIR().getStmts()) {
-            if (node instanceof StoreField storeField && checkNeedMeet(storeField, loadField, isStatic)) {
+        for (var storeField : storeFields) {
+            if (checkNeedMeet(storeField, loadField, isStatic)) {
                 var storeVar = storeField.getRValue();
-                Value storeValue = in.get(storeVar);
+                var fact = this.solver.getResult().getInFact(storeField);
+                Value storeValue = fact.get(storeVar);
                 var temp = new CPFact();
                 temp.update(lvar, storeValue);
                 meetInto(temp, in_copy);
@@ -183,29 +222,42 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
     }
 
     boolean transferStoreField(StoreField storeField, CPFact in, CPFact out) {
-        return out.copyFrom(in);
+        var change = out.copyFrom(in);
+        if (change) {
+            for (var loadField : loadFields) {
+                solver.addWorkList(loadField);
+            }
+        }
+        return change;
     }
 
     boolean transferStoreArray(StoreArray storeArray, CPFact in, CPFact out) {
-        return out.copyFrom(in);
+        var change = out.copyFrom(in);
+        if (change) {
+            for (var loadArray : loadArrays) {
+                solver.addWorkList(loadArray);
+            }
+        }
+        return change;
     }
 
     boolean transferLoadArray(LoadArray loadArray, CPFact in, CPFact out) {
         var lvar = loadArray.getLValue();
+        if (!ConstantPropagation.canHoldInt(lvar)) {
+            return out.copyFrom(in); // error here for Reference.java
+        }
         var in_copy = in.copy();
-        for (var stmt : icfg.getContainingMethodOf(loadArray).getIR().getStmts()) {
-
-            if (stmt instanceof StoreArray storeArray) {
-                var storeBase = storeArray.getArrayAccess().getBase();
-                var loadBase = loadArray.getArrayAccess().getBase();
-                var loadIndex = loadArray.getArrayAccess().getIndex();
-                var storeIndex = storeArray.getArrayAccess().getIndex();
-                if (checkArrayAlias(storeBase, in.get(storeIndex), loadBase, in.get(loadIndex))) {
-                    var storeVar = storeArray.getRValue();
-                    var temp = new CPFact();
-                    temp.update(lvar, in.get(storeVar));
-                    meetInto(temp, in_copy);
-                }
+        for (var storeArray : storeArrays) {
+            var storeBase = storeArray.getArrayAccess().getBase();
+            var loadBase = loadArray.getArrayAccess().getBase();
+            var loadIndex = loadArray.getArrayAccess().getIndex();
+            var storeIndex = storeArray.getArrayAccess().getIndex();
+            var fact = solver.getResult().getInFact(storeArray);
+            if (checkArrayAlias(storeBase, fact.get(storeIndex), loadBase, in.get(loadIndex))) {
+                var storeVar = storeArray.getRValue();
+                var temp = new CPFact();
+                temp.update(lvar, fact.get(storeVar));
+                meetInto(temp, in_copy);
             }
         }
         return out.copyFrom(in_copy);
@@ -248,6 +300,7 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
         var source = edge.getSource();
         var copy = out.copy();
         if (source instanceof Invoke invokeExp && invokeExp.getDef().isPresent()) {
+            System.out.println(source);
             copy.update((Var) invokeExp.getDef().get(), Value.getUndef());
         }
         return copy;
@@ -258,16 +311,12 @@ public class InterConstantPropagation extends AbstractInterDataflowAnalysis<JMet
         // TODO - finish me
         var temp = new CPFact();
         var j = 0;
-        for (var param : edge.getCallee().getIR().getParams()) {
-            var uses = edge.getSource().getUses();
-            // all args are `Var` ?
-            for (var use : uses) {
-                if (use instanceof InvokeExp invokeExp) {
-                    temp.update(param, callSiteOut.get(invokeExp.getArg(j)));
-                    break;
-                }
+        if (edge.getSource() instanceof Invoke invoke) {
+            for (var param : edge.getCallee().getIR().getParams()) {
+                // all args are `Var` ?
+                temp.update(param, callSiteOut.get(invoke.getInvokeExp().getArg(j)));
+                j++;
             }
-            j++;
         }
         return temp;
     }
